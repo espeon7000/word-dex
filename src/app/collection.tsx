@@ -56,6 +56,11 @@ import {
   formatReviewDate,
 } from "@/components/expandable-review-text";
 import { PressableScale } from "@/components/pressable-scale";
+import {
+  AvatarThumbnail,
+  ProfilePictureModal,
+} from "@/components/profile-picture-modal";
+import { API_BASE_URL } from "@/constants/api";
 import { Fonts, Spacing } from "@/constants/theme";
 import { useAuth } from "@/context/auth";
 import { MASTERED_MASTERY_THRESHOLD, useCollection } from "@/context/collection";
@@ -162,6 +167,17 @@ function masteryGroup(mastery: number): string {
   if (mastery < 10) return "mastered (5+)";
   const threshold = mastery < 50 ? 10 : Math.floor(mastery / 50) * 50;
   return `wow :D (${threshold}+)`;
+}
+
+// Sort key for the books list's "author" mode - last name, not the raw
+// "First Last" string, so a-z lands the way a library catalog would ("F.
+// Scott Fitzgerald" files under F(itzgerald), not F(.)). Just the last
+// whitespace-separated token: covers the common "First [Middle] Last"
+// shapes; a multi-word surname (eg. "Le Guin") sorts on its final word,
+// same simplification most apps make here.
+function authorLastNameKey(author: string): string {
+  const parts = author.trim().split(/\s+/);
+  return parts[parts.length - 1];
 }
 
 function monthGroup(addedAt: string): string {
@@ -865,11 +881,13 @@ const SWIPE_EDGE_WIDTH = 24;
 // anywhere on the row.
 function SettingsScreen({
   onDismiss,
+  onEditProfilePicture,
   onModifyColorTheme,
   onLogout,
   onDeleteAccount,
 }: {
   onDismiss: () => void;
+  onEditProfilePicture: () => void;
   onModifyColorTheme: () => void;
   onLogout: () => void;
   onDeleteAccount: () => void;
@@ -970,6 +988,20 @@ function SettingsScreen({
       </Pressable>
 
       <View style={styles.settingsOptions}>
+        <View
+          style={[styles.settingsDivider, { backgroundColor: theme.separator }]}
+        />
+        <Pressable
+          style={({ pressed }) => [
+            styles.settingsOption,
+            pressed && { backgroundColor: theme.backgroundElement },
+          ]}
+          onPress={onEditProfilePicture}
+        >
+          <Text style={[styles.settingsOptionText, { color: theme.text }]}>
+            add/edit profile picture
+          </Text>
+        </Pressable>
         <View
           style={[styles.settingsDivider, { backgroundColor: theme.separator }]}
         />
@@ -1903,7 +1935,7 @@ export default function CollectionScreen() {
     setBookSortDirection,
     resetGeneration,
   } = useCollection();
-  const { user, logout, deleteAccount } = useAuth();
+  const { user, token, logout, deleteAccount } = useAuth();
 
   const rawUsername = user?.username ?? "";
   const displayUsername =
@@ -1913,6 +1945,26 @@ export default function CollectionScreen() {
 
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [colorThemeVisible, setColorThemeVisible] = useState(false);
+  const [avatar, setAvatar] = useState<string | null>(null);
+  const [profilePictureVisible, setProfilePictureVisible] = useState(false);
+
+  // Fetched once on mount rather than only when settings opens - the
+  // settings row needs to know up front whether to show the real photo or
+  // the placeholder icon the very first time it renders, not pop in a beat
+  // later after the panel's already slid open.
+  useEffect(() => {
+    if (!token) return;
+    fetch(`${API_BASE_URL}/api/profile-picture`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data) setAvatar(data.avatar ?? null);
+      })
+      .catch((error) => {
+        console.error("[collection] failed to load avatar", error);
+      });
+  }, [token]);
   const [ratingBook, setRatingBook] = useState<CollectionBook | null>(null);
   const [addBookPromptVisible, setAddBookPromptVisible] = useState(false);
 
@@ -2031,10 +2083,15 @@ export default function CollectionScreen() {
           if (!bHasAuthor) return -1;
           // Same author: always most-recent-first, fixed regardless of
           // direction - only the primary author order flips, same "fixed
-          // secondary sort" shape used elsewhere in this file.
+          // secondary sort" shape used elsewhere in this file. Ordered by
+          // last name (authorLastNameKey), not the raw author string -
+          // bookAuthorKeyFor is still what groups/labels sections below, so
+          // headers keep showing the full "First Last" name.
           return (
-            sign * bookAuthorKeyFor(a).localeCompare(bookAuthorKeyFor(b)) ||
-            recentFor(b).localeCompare(recentFor(a))
+            sign *
+              authorLastNameKey(bookAuthorKeyFor(a)).localeCompare(
+                authorLastNameKey(bookAuthorKeyFor(b)),
+              ) || recentFor(b).localeCompare(recentFor(a))
           );
         });
       }
@@ -2377,6 +2434,9 @@ export default function CollectionScreen() {
       >
         <View style={styles.profileRow}>
           <View style={styles.usernameRow}>
+            <View style={styles.avatarWrap}>
+              <AvatarThumbnail uri={avatar} size={44} />
+            </View>
             <Text
               style={[styles.username, { color: theme.text }]}
               numberOfLines={1}
@@ -2410,6 +2470,7 @@ export default function CollectionScreen() {
       {settingsVisible && (
         <SettingsScreen
           onDismiss={() => setSettingsVisible(false)}
+          onEditProfilePicture={() => setProfilePictureVisible(true)}
           onModifyColorTheme={() => setColorThemeVisible(true)}
           onLogout={logout}
           onDeleteAccount={() => {
@@ -2432,6 +2493,16 @@ export default function CollectionScreen() {
 
       {colorThemeVisible && (
         <ColorThemeModal onDismiss={() => setColorThemeVisible(false)} />
+      )}
+
+      {profilePictureVisible && (
+        <ProfilePictureModal
+          onDismiss={() => setProfilePictureVisible(false)}
+          onSaved={(newAvatar) => {
+            setAvatar(newAvatar);
+            setProfilePictureVisible(false);
+          }}
+        />
       )}
 
       {ratingBook && (
@@ -2769,7 +2840,32 @@ const styles = StyleSheet.create({
     minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.three,
+    gap: Spacing.one,
+    marginRight: Spacing.two,
+  },
+  // Negative marginLeft pulls the avatar past profileHeader's own
+  // paddingHorizontal, further left than every other row's inset -
+  // deliberate here, not a bug: the avatar's own circular padding already
+  // reads as whitespace, so lining it up flush with the square-edged inset
+  // other rows use left it looking under-indented. marginRight adds *extra*
+  // space before the username on top of usernameRow's own gap (above),
+  // without touching the gap on the other side of the username (before
+  // streakRow) - a per-child margin only ever applies next to that one
+  // child, unlike the row's shared `gap`, which would have widened both
+  // sides at once.
+  //
+  // Pinned to the original 32x32 footprint (matching the old
+  // AvatarThumbnail size) even though the thumbnail rendered inside is now
+  // bigger - overflow is visible by default in RN, so the larger circle
+  // just spills past this box's edges instead of the box (and so
+  // usernameRow/profileHeader's height) growing to match it. Centered so
+  // the overflow is even on all sides.
+  avatarWrap: {
+    width: 32,
+    height: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: -Spacing.two,
     marginRight: Spacing.two,
   },
   username: {
@@ -2783,6 +2879,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: Spacing.half,
     flexShrink: 0,
+    // Compensates for usernameRow's own gap having been narrowed for the
+    // avatar-to-username spacing (see avatarWrap's comment) - keeps this
+    // row's own distance from the username roughly where it was before.
+    marginLeft: Spacing.two,
   },
   streakText: {
     fontSize: 16,

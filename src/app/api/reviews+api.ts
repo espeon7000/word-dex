@@ -30,6 +30,7 @@ export async function GET(request: Request) {
         NULL::text AS review,
         ub.added_at AS "addedAt",
         u.username,
+        u.avatar,
         ub.title,
         ub.author
       FROM follows f
@@ -50,6 +51,7 @@ export async function GET(request: Request) {
         ubr.review,
         ubr.added_at AS "addedAt",
         u.username,
+        u.avatar,
         ub.title,
         ub.author
       FROM follows f

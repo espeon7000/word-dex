@@ -332,71 +332,93 @@ export async function POST(request: Request) {
     // low-stakes enough that "each device only shows what it personally
     // wrote" is an acceptable tradeoff for the simplicity this buys.
 
-    const userWords = await sql`
-      SELECT id, word, definition, mastery, added_at AS "addedAt",
-             user_book_id AS "userBookId", server_seq AS "seq"
-      FROM user_words
-      WHERE user_id = ${userId} AND server_seq > ${cursors.userWordsSeq}
-      ORDER BY server_seq
-    `;
-    const userBooks = await sql`
-      SELECT id, added_at AS "addedAt", title, author,
-             user_book_category_id AS "userBookCategoryId", server_seq AS "seq"
-      FROM user_books
-      WHERE user_id = ${userId} AND server_seq > ${cursors.userBooksSeq}
-      ORDER BY server_seq
-    `;
-    const userBookCategories = await sql`
-      SELECT id, added_at AS "addedAt", name, server_seq AS "seq"
-      FROM user_book_categories
-      WHERE user_id = ${userId} AND server_seq > ${cursors.userBookCategoriesSeq}
-      ORDER BY server_seq
-    `;
-    const learnEvents = await sql`
-      SELECT le.id, le.user_word_id AS "userWordId", le.timestamp, le.server_seq AS "seq"
-      FROM learn_events le
-      JOIN user_words w ON w.id = le.user_word_id
-      WHERE w.user_id = ${userId} AND le.server_seq > ${cursors.learnEventsSeq}
-      ORDER BY le.server_seq
-    `;
-    // Ownership scoped the same way as learn_events - via a JOIN through
-    // the parent row's user_id, not a user_id column on this table itself.
-    const userBookReviews = await sql`
-      SELECT r.id, r.user_book_id AS "userBookId", r.added_at AS "addedAt",
-             r.rating, r.review, r.server_seq AS "seq"
-      FROM user_book_reviews r
-      JOIN user_books b ON b.id = r.user_book_id
-      WHERE b.user_id = ${userId} AND r.server_seq > ${cursors.userBookReviewsSeq}
-      ORDER BY r.server_seq
-    `;
-    const deletedWords = await sql`
-      SELECT id AS "seq", user_word_id AS "userWordId", deleted_at AS "deletedAt"
-      FROM deleted_words
-      WHERE user_id = ${userId} AND id > ${cursors.deletedWordsSeq}
-      ORDER BY id
-    `;
-    const deletedBooks = await sql`
-      SELECT id AS "seq", user_book_id AS "userBookId", deleted_at AS "deletedAt"
-      FROM deleted_books
-      WHERE user_id = ${userId} AND id > ${cursors.deletedBooksSeq}
-      ORDER BY id
-    `;
-    const deletedCategories = await sql`
-      SELECT id AS "seq", user_book_category_id AS "userBookCategoryId", deleted_at AS "deletedAt"
-      FROM deleted_categories
-      WHERE user_id = ${userId} AND id > ${cursors.deletedCategoriesSeq}
-      ORDER BY id
-    `;
-    // Cast to text - the driver returns a native "date" column as a JS Date
-    // object, which serializes to a full ISO timestamp (eg.
-    // "2026-07-06T04:00:00.000Z", shifted by server timezone) rather than
-    // the plain "YYYY-MM-DD" string that was originally pushed. That broke
-    // streak computation on any device other than the one that logged the
-    // activity: the pulled value never matched computeStreak's exact
-    // "YYYY-MM-DD" Set lookups, so synced days silently never counted.
-    const activityRows = await sql`
-      SELECT day::text AS day FROM user_activity WHERE user_id = ${userId}
-    `;
+    // All 9 of these batched into one transaction() call - same reason as
+    // the push side above, but for subrequests rather than atomicity: each
+    // was previously its own separate `await sql` (its own fetch to Neon,
+    // its own Cloudflare Workers subrequest), and stacked on top of the
+    // fixed cost of the category-resolve + push transaction above, that was
+    // enough on its own to trip Cloudflare's "too many subrequests per
+    // Worker invocation" limit - even on a tiny, single-learn-event sync,
+    // since this pull section runs unconditionally on every sync regardless
+    // of payload size. One transaction here is however many logical queries
+    // down to exactly 1 real network round trip, same as the push side.
+    const [
+      userWords,
+      userBooks,
+      userBookCategories,
+      learnEvents,
+      userBookReviews,
+      deletedWords,
+      deletedBooks,
+      deletedCategories,
+      activityRows,
+    ] = await sql.transaction((txn) => [
+      txn`
+        SELECT id, word, definition, mastery, added_at AS "addedAt",
+               user_book_id AS "userBookId", server_seq AS "seq"
+        FROM user_words
+        WHERE user_id = ${userId} AND server_seq > ${cursors.userWordsSeq}
+        ORDER BY server_seq
+      `,
+      txn`
+        SELECT id, added_at AS "addedAt", title, author,
+               user_book_category_id AS "userBookCategoryId", server_seq AS "seq"
+        FROM user_books
+        WHERE user_id = ${userId} AND server_seq > ${cursors.userBooksSeq}
+        ORDER BY server_seq
+      `,
+      txn`
+        SELECT id, added_at AS "addedAt", name, server_seq AS "seq"
+        FROM user_book_categories
+        WHERE user_id = ${userId} AND server_seq > ${cursors.userBookCategoriesSeq}
+        ORDER BY server_seq
+      `,
+      txn`
+        SELECT le.id, le.user_word_id AS "userWordId", le.timestamp, le.server_seq AS "seq"
+        FROM learn_events le
+        JOIN user_words w ON w.id = le.user_word_id
+        WHERE w.user_id = ${userId} AND le.server_seq > ${cursors.learnEventsSeq}
+        ORDER BY le.server_seq
+      `,
+      // Ownership scoped the same way as learn_events - via a JOIN through
+      // the parent row's user_id, not a user_id column on this table itself.
+      txn`
+        SELECT r.id, r.user_book_id AS "userBookId", r.added_at AS "addedAt",
+               r.rating, r.review, r.server_seq AS "seq"
+        FROM user_book_reviews r
+        JOIN user_books b ON b.id = r.user_book_id
+        WHERE b.user_id = ${userId} AND r.server_seq > ${cursors.userBookReviewsSeq}
+        ORDER BY r.server_seq
+      `,
+      txn`
+        SELECT id AS "seq", user_word_id AS "userWordId", deleted_at AS "deletedAt"
+        FROM deleted_words
+        WHERE user_id = ${userId} AND id > ${cursors.deletedWordsSeq}
+        ORDER BY id
+      `,
+      txn`
+        SELECT id AS "seq", user_book_id AS "userBookId", deleted_at AS "deletedAt"
+        FROM deleted_books
+        WHERE user_id = ${userId} AND id > ${cursors.deletedBooksSeq}
+        ORDER BY id
+      `,
+      txn`
+        SELECT id AS "seq", user_book_category_id AS "userBookCategoryId", deleted_at AS "deletedAt"
+        FROM deleted_categories
+        WHERE user_id = ${userId} AND id > ${cursors.deletedCategoriesSeq}
+        ORDER BY id
+      `,
+      // Cast to text - the driver returns a native "date" column as a JS
+      // Date object, which serializes to a full ISO timestamp (eg.
+      // "2026-07-06T04:00:00.000Z", shifted by server timezone) rather than
+      // the plain "YYYY-MM-DD" string that was originally pushed. That broke
+      // streak computation on any device other than the one that logged the
+      // activity: the pulled value never matched computeStreak's exact
+      // "YYYY-MM-DD" Set lookups, so synced days silently never counted.
+      txn`
+        SELECT day::text AS day FROM user_activity WHERE user_id = ${userId}
+      `,
+    ]);
 
     // Sliding session, not a fixed 30-day-from-login expiry: this app talks
     // to the server on every open and every foreground return (see

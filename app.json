@@ -40,7 +40,14 @@
       ],
       "expo-sqlite",
       "expo-secure-store",
-      "expo-notifications"
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow $(PRODUCT_NAME) to access your photos to set a profile picture.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

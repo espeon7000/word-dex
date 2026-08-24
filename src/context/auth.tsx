@@ -10,6 +10,7 @@ import {
 
 import { API_BASE_URL } from "@/constants/api";
 import { clearAllTables } from "@/db/client";
+import { setCurrentToken } from "@/lib/auth-token";
 
 type User = { email: string; username: string };
 type Session = User & { token: string };
@@ -178,6 +179,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const user = session
     ? { email: session.email, username: session.username }
     : null;
+
+  // Keeps lib/auth-token.ts's module-level slot in sync with the real
+  // session token on every login/logout/refresh - see setCurrentToken's own
+  // comment for why plain utility modules need this instead of useAuth().
+  useEffect(() => {
+    setCurrentToken(session?.token ?? null);
+  }, [session?.token]);
 
   return (
     <AuthContext

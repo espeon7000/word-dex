@@ -1,3 +1,6 @@
+import { API_BASE_URL } from "@/constants/api";
+import { getCurrentToken } from "@/lib/auth-token";
+
 // 13 points on the color wheel, arranged like a clock face - the 12 hour
 // positions plus dead center. Hue values follow the same convention
 // components/color-wheel.tsx's own polarToCartesian uses (hue 0 = 3
@@ -66,40 +69,29 @@ const MOODS_BY_ID = new Map(MOODS.map((m) => [m.id, m]));
 // titles/reviews are mood-neutral, and forcing every one into the nearest
 // bucket would make the background shift on nearly everything instead of
 // only when something actually reads that way.
+//
+// Calls our own /api/classify-mood rather than api.anthropic.com directly -
+// see that route's own comment for why (this used to ship a real, billed
+// Anthropic key in the app bundle via EXPO_PUBLIC_ANTHROPIC_API_KEY).
+// getCurrentToken() (not useAuth() - this module sits outside any component,
+// and above AuthProvider besides, since it's called from context/theme.tsx)
+// mirrors db/sync.ts's own token access.
 export async function classifyMood(text: string): Promise<Mood | null> {
   const trimmed = text.trim();
   if (!trimmed) return null;
-  const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY;
-  const moodList = MOODS.map((m) => `- ${m.id}: ${m.label}`).join("\n");
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
+    const res = await fetch(`${API_BASE_URL}/api/classify-mood`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": apiKey ?? "",
-        "anthropic-version": "2023-06-01",
+        Authorization: `Bearer ${getCurrentToken() ?? ""}`,
       },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 32,
-        messages: [
-          {
-            role: "user",
-            content: `A short piece of text follows - a sentence, a book title, or a book review. Decide whether it strongly evokes exactly one of these moods. Be selective - most text matches none of them, so only pick one if it's a clear, strong match.\n${moodList}\n\nText: "${trimmed}"\n\nReply ONLY with a JSON object: {"mood": "<id>"} using one of the ids above, or {"mood": null} if nothing fits well.`,
-          },
-        ],
-      }),
+      body: JSON.stringify({ text: trimmed }),
     });
     if (!res.ok) return null;
     const data = await res.json();
-    const raw: string = data.content?.[0]?.text ?? "{}";
-    const cleaned = raw
-      .replace(/^```(?:json)?\s*/i, "")
-      .replace(/\s*```$/, "")
-      .trim();
-    const parsed = JSON.parse(cleaned);
-    if (typeof parsed.mood !== "string") return null;
-    return MOODS_BY_ID.get(parsed.mood) ?? null;
+    if (typeof data.mood !== "string") return null;
+    return MOODS_BY_ID.get(data.mood) ?? null;
   } catch {
     return null;
   }

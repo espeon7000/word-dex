@@ -1,4 +1,3 @@
-import { useRouter } from "expo-router";
 import { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -11,42 +10,16 @@ import { FollowsProvider } from "@/context/follows";
 import { ThemeProvider } from "@/context/theme";
 import { setTokenRefreshedHandler, setUnauthorizedHandler } from "@/db/sync";
 import { useTheme } from "@/hooks/use-theme";
-import {
-  attachNotificationTapListener,
-  registerForPushNotifications,
-} from "@/lib/push-notifications";
 
 function Root() {
   const { user, token, loading, sessionExpired, refreshToken } = useAuth();
-  const router = useRouter();
-
-  // Covers login, signup, and a restored session on launch uniformly -
-  // user/token all become truthy the same way in every case, same trigger
-  // the two effects below already use. Re-registers on every token refresh
-  // too (harmless - push-tokens+api.ts's ON CONFLICT just bumps
-  // created_at), simpler than trying to fire this only once per login.
-  useEffect(() => {
-    if (user && token) registerForPushNotifications(token);
-  }, [user, token]);
-
-  // Tapping a delivered push - the OS already opens/foregrounds the app on
-  // its own for any tap, this just lands it on the explore tab specifically
-  // rather than wherever it happened to be. Guarded on user/token since
-  // AppTabs (and so the "explore" route itself) is only mounted below once
-  // logged in - a stale token left registered from before a logout could
-  // otherwise still receive a push and try to navigate to a route that
-  // doesn't exist yet.
-  useEffect(() => {
-    return attachNotificationTapListener(() => {
-      if (user && token) router.push("/explore");
-    });
-  }, [router, user, token]);
 
   // The very first push/pull after opening the app (see CollectionProvider's
   // own mount effect) is also the first place a token that's expired since
   // the last session would actually get noticed - the server rejects it,
-  // sendPush sees the 401 and calls this, and sessionExpired drops back to
-  // AuthScreen below on the next render. Registered here (not inside
+  // db/sync.ts's own sendPush (the sync POST, not push notifications) sees
+  // the 401 and calls this, and sessionExpired drops back to AuthScreen
+  // below on the next render. Registered here (not inside
   // CollectionProvider itself) since this is the one place with direct
   // access to both a stable auth action and the fact that a 401 can only
   // ever mean "this session," never "this specific screen."

@@ -21,6 +21,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 
+import { API_BASE_URL } from "@/constants/api";
 import { DEFINITION_QUIZ_WORDS } from "@/constants/definition-quiz-words";
 import { Fonts, Spacing } from "@/constants/theme";
 import {
@@ -31,6 +32,7 @@ import {
 } from "@/context/collection";
 import { useThemeContext } from "@/context/theme";
 import { useTheme } from "@/hooks/use-theme";
+import { getCurrentToken } from "@/lib/auth-token";
 
 // Picks randomly among the lowest-mastery words instead of always the single
 // lowest, so the same word doesn't come up first every time the list is stale.
@@ -144,30 +146,24 @@ function formatCountdown(ms: number): string {
   return `${pad(Math.floor(totalSeconds / 3600))}:${pad(Math.floor((totalSeconds % 3600) / 60))}:${pad(totalSeconds % 60)}`;
 }
 
+// Calls our own /api/verify-sentence rather than api.anthropic.com
+// directly - see that route's own comment for why (this used to ship a
+// real, billed Anthropic key in the app bundle via
+// EXPO_PUBLIC_ANTHROPIC_API_KEY). getCurrentToken() (not useAuth() - this is
+// a plain function, not a hook) mirrors db/sync.ts's own token access.
 async function verifyWithClaude(
   word: string,
   sentence: string,
 ): Promise<{ correct: boolean; reason: string }> {
-  const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY;
   let res: Response;
   try {
-    res = await fetch("https://api.anthropic.com/v1/messages", {
+    res = await fetch(`${API_BASE_URL}/api/verify-sentence`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": apiKey ?? "",
-        "anthropic-version": "2023-06-01",
+        Authorization: `Bearer ${getCurrentToken() ?? ""}`,
       },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 256,
-        messages: [
-          {
-            role: "user",
-            content: `Does this phrase/sentence(s) use the word "${word}" correctly in context? If the word is not included, it is incorrect. Doesn't have to be a complete sentence or have perfect grammar, as long as the word's meaning is conveyed accurately. Reply ONLY with a JSON object with two fields: "correct" (boolean) and "reason" (a very short explanation why, 8 words max).\n\nSentence: ${sentence}`,
-          },
-        ],
-      }),
+      body: JSON.stringify({ word, sentence }),
     });
   } catch {
     // fetch() itself throwing (rather than resolving with some status) means
@@ -177,17 +173,7 @@ async function verifyWithClaude(
   }
 
   if (!res.ok) throw new Error("api error");
-  const data = await res.json();
-  const raw: string = data.content?.[0]?.text ?? "{}";
-  const text = raw
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/\s*```$/, "")
-    .trim();
-  try {
-    return JSON.parse(text);
-  } catch {
-    return { correct: false, reason: "could not parse response" };
-  }
+  return res.json();
 }
 
 type ScreenState =

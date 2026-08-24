@@ -68,6 +68,7 @@ export async function POST(request: Request) {
       VALUES (${userId}, ${target.id})
       ON CONFLICT DO NOTHING
     `;
+
     return Response.json({ success: true });
   } catch (error) {
     if (error instanceof Response) return error;

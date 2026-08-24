@@ -22,10 +22,12 @@ import Animated, {
 } from "react-native-reanimated";
 import { Ionicons } from "@expo/vector-icons";
 
+import { API_BASE_URL } from "@/constants/api";
 import { Fonts, Spacing } from "@/constants/theme";
 import { useCollection } from "@/context/collection";
 import { PressableScale } from "@/components/pressable-scale";
 import { useTheme } from "@/hooks/use-theme";
+import { getCurrentToken } from "@/lib/auth-token";
 
 // Short queries return noisy, mostly-irrelevant matches on Google Books -
 // this keeps the same debounced-search UX Open Library needed, even though
@@ -66,15 +68,21 @@ type GoogleBooksResponse = { items?: GoogleBooksVolume[]; totalItems: number };
 // only 5xx is worth retrying.
 const SEARCH_RETRY_DELAY_MS = 800;
 
+// Calls our own /api/search-books rather than googleapis.com directly - see
+// that route's own comment for why (this used to ship a real Google Books
+// key in the app bundle via EXPO_PUBLIC_GOOGLE_BOOKS_API_KEY). getCurrentToken()
+// (not useAuth() - this is a plain function, called from both this file's
+// own BookPrompt and collection.tsx's AddBookPrompt) mirrors db/sync.ts's
+// own token access.
 async function searchBooksOnce(
   query: string,
   offset: number,
 ): Promise<{ results: BookResult[]; numFound: number }> {
-  const key = process.env.EXPO_PUBLIC_GOOGLE_BOOKS_API_KEY;
   let res: Response;
   try {
     res = await fetch(
-      `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&startIndex=${offset}&maxResults=${RESULT_LIMIT}${key ? `&key=${key}` : ""}`,
+      `${API_BASE_URL}/api/search-books?q=${encodeURIComponent(query)}&offset=${offset}&maxResults=${RESULT_LIMIT}`,
+      { headers: { Authorization: `Bearer ${getCurrentToken() ?? ""}` } },
     );
   } catch {
     // fetch() itself throwing (rather than resolving with some status) means
@@ -87,7 +95,7 @@ async function searchBooksOnce(
     // malformed query) - a bare "search failed" gave no way to tell those
     // apart after the fact from the console log alone.
     const body = await res.json().catch(() => null);
-    const reason = body?.error?.message ?? res.statusText;
+    const reason = body?.error ?? res.statusText;
     throw Object.assign(new Error(`search failed: ${res.status} ${reason}`), {
       status: res.status,
     });
