@@ -1,5 +1,6 @@
 import { getSql } from "@/server/db";
 import { requireAuth } from "@/server/jwt";
+import { captureException } from "@/server/sentry";
 
 // The explore page's read-only "view this user's books" screen, opened by
 // tapping any username there (feed cards, follow lists). Same no-privacy-
@@ -60,6 +61,7 @@ export async function GET(request: Request) {
   } catch (error) {
     if (error instanceof Response) return error;
     console.error("[user-books] error", error);
+    await captureException(error, "user-books");
     return Response.json({ error: "something went wrong" }, { status: 500 });
   }
 }

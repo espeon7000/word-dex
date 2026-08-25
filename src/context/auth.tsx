@@ -11,6 +11,7 @@ import {
 import { API_BASE_URL } from "@/constants/api";
 import { clearAllTables } from "@/db/client";
 import { setCurrentToken } from "@/lib/auth-token";
+import { reportError } from "@/lib/report-error";
 
 type User = { email: string; username: string };
 type Session = User & { token: string };
@@ -44,6 +45,27 @@ const SESSION_KEY = "words_session";
 // either way, drop whatever SESSION_KEY still has and start logged out.
 const FRESH_INSTALL_MARKER_KEY = "words_installed";
 
+// Local SQLite tables carry no user_id column (see logout's own comment
+// below), so account isolation depends entirely on clearing them whenever
+// the account actually changes. sessionExpired() deliberately leaves local
+// tables alone after an expired-token bounce, on the assumption the same
+// account logs back in next - this marker is the other half of that
+// trade-off. If a genuinely *different* account signs in instead, login/
+// signup below compare against this and clear local tables first, so
+// account B never inherits (and, on the next sync, silently pushes up)
+// whatever account A left sitting there locally. Plain AsyncStorage, not
+// SecureStore - this is just a bookkeeping marker (an email), not a
+// credential.
+const LOCAL_DATA_OWNER_KEY = "words_local_data_owner";
+
+async function ensureLocalDataOwnership(email: string): Promise<void> {
+  const owner = await AsyncStorage.getItem(LOCAL_DATA_OWNER_KEY);
+  if (owner !== null && owner !== email) {
+    await clearAllTables();
+  }
+  await AsyncStorage.setItem(LOCAL_DATA_OWNER_KEY, email);
+}
+
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 async function callAuthApi(
@@ -61,15 +83,15 @@ async function callAuthApi(
     // fetch() itself throwing means the request never reached the network at
     // all (no connection, DNS failure, etc.) - worth telling apart in the
     // log from the server actually responding with an error below.
-    console.error(`[auth] ${path} request failed`, error);
+    reportError(`[auth] ${path} request failed`, error);
     throw error;
   }
   const data = await res.json().catch((error) => {
-    console.error(`[auth] ${path} response wasn't valid JSON`, error);
+    reportError(`[auth] ${path} response wasn't valid JSON`, error);
     throw error;
   });
   if (!res.ok) {
-    console.error(`[auth] ${path} rejected`, res.status, data);
+    reportError(`[auth] ${path} rejected`, res.status, data);
     throw new Error(data.error ?? "something went wrong");
   }
   return data;
@@ -100,6 +122,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = useCallback(
     async (emailOrUsername: string, password: string) => {
       const data = await callAuthApi("login", { emailOrUsername, password });
+      // Awaited before setSession below flips CollectionProvider on - it
+      // reads local SQLite as soon as it mounts, so any clear this triggers
+      // has to finish first or it'd briefly render the previous account's
+      // data.
+      await ensureLocalDataOwnership(data.user.email);
       const next: Session = { ...data.user, token: data.token };
       await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(next));
       setSession(next);
@@ -110,6 +137,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signup = useCallback(
     async (email: string, username: string, password: string) => {
       const data = await callAuthApi("signup", { email, username, password });
+      await ensureLocalDataOwnership(data.user.email);
       const next: Session = { ...data.user, token: data.token };
       await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(next));
       setSession(next);
@@ -150,7 +178,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!prev) return prev;
       const next = { ...prev, token: newToken };
       SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(next)).catch(
-        (error) => console.error('[auth] failed to persist refreshed token', error),
+        (error) => reportError('[auth] failed to persist refreshed token', error),
       );
       return next;
     });

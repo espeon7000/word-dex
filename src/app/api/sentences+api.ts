@@ -1,5 +1,6 @@
 import { getSql } from "@/server/db";
 import { requireAuth } from "@/server/jwt";
+import { captureException } from "@/server/sentry";
 
 // Discover page's "example usage" section - the 3 most recent sentences
 // written for this word by any user (not just the caller's own), newest
@@ -28,6 +29,7 @@ export async function GET(request: Request) {
   } catch (error) {
     if (error instanceof Response) return error;
     console.error("[sentences] fetch error", error);
+    await captureException(error, "sentences");
     return Response.json({ error: "something went wrong" }, { status: 500 });
   }
 }

@@ -1,6 +1,7 @@
 import { getSql } from '@/server/db';
 import { issueToken } from '@/server/jwt';
 import { hashPassword } from '@/server/password';
+import { captureException } from '@/server/sentry';
 
 // Matches the client-side maxLength in components/auth-screen.tsx - kept
 // here too since that's just a TextInput prop, trivially bypassable by
@@ -62,6 +63,7 @@ export async function POST(request: Request) {
     );
   } catch (error) {
     console.error('[auth/signup] error', error);
+    await captureException(error, 'auth/signup');
     return Response.json({ error: 'something went wrong' }, { status: 500 });
   }
 }

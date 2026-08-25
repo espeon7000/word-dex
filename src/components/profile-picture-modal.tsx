@@ -21,6 +21,7 @@ import { API_BASE_URL } from "@/constants/api";
 import { Spacing } from "@/constants/theme";
 import { useAuth } from "@/context/auth";
 import { useTheme } from "@/hooks/use-theme";
+import { reportError } from "@/lib/report-error";
 
 // Diameter of the circular crop viewport - capped well under screen width
 // so it always fits with room for the cancel/confirm buttons below it.
@@ -279,7 +280,7 @@ export function ProfilePictureModal({
       }
       setImage({ uri: asset.uri, width: asset.width, height: asset.height });
     })().catch((error) => {
-      console.error("[profile-picture] picker failed", error);
+      reportError("[profile-picture] picker failed", error);
       onDismiss();
     });
   }, [onDismiss]);
@@ -319,7 +320,7 @@ export function ProfilePictureModal({
       if (!res.ok) throw new Error(`server rejected avatar, status ${res.status}`);
       onSaved(avatar);
     } catch (error) {
-      console.error("[profile-picture] save failed", error);
+      reportError("[profile-picture] save failed", error);
       Alert.alert("something went wrong", "please try again.");
     } finally {
       setSaving(false);

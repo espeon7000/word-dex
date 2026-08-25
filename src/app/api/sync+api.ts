@@ -1,5 +1,6 @@
 import { getSql } from "@/server/db";
 import { issueToken, requireAuth } from "@/server/jwt";
+import { captureException } from "@/server/sentry";
 
 // How close to its own 30-day expiry (see jwt.ts's issueToken) a token has
 // to be before this route bothers reissuing it - a sliding session, but not
@@ -451,6 +452,7 @@ export async function POST(request: Request) {
   } catch (error) {
     if (error instanceof Response) return error;
     console.error("[sync] error", error);
+    await captureException(error, "sync");
     // Temporary: surfaces the real error to the client instead of just the
     // generic message, so it shows up in the in-app error overlay directly -
     // no terminal access to the dev server needed to diagnose a failure.

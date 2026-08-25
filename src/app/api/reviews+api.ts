@@ -1,5 +1,6 @@
 import { getSql } from "@/server/db";
 import { requireAuth } from "@/server/jwt";
+import { captureException } from "@/server/sentry";
 
 // Explore page's activity feed - two kinds of entry, both from anyone the
 // current user follows, newest first: reviews, and "started reading" entries
@@ -67,6 +68,7 @@ export async function GET(request: Request) {
   } catch (error) {
     if (error instanceof Response) return error;
     console.error("[reviews] error", error);
+    await captureException(error, "reviews");
     return Response.json({ error: "something went wrong" }, { status: 500 });
   }
 }

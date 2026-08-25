@@ -1,5 +1,6 @@
 import { getSql } from "@/server/db";
 import { requireAuth } from "@/server/jwt";
+import { captureException } from "@/server/sentry";
 
 // Every other table's user data hangs off users.id via ON DELETE CASCADE
 // (user_words, user_books, sentences, user_activity, deleted_words directly;
@@ -14,6 +15,7 @@ export async function DELETE(request: Request) {
   } catch (error) {
     if (error instanceof Response) return error;
     console.error("[account] delete error", error);
+    await captureException(error, "account:delete");
     return Response.json({ error: "something went wrong" }, { status: 500 });
   }
 }

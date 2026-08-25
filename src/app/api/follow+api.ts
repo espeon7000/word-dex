@@ -1,5 +1,6 @@
 import { getSql } from "@/server/db";
 import { requireAuth } from "@/server/jwt";
+import { captureException } from "@/server/sentry";
 
 // Explore page's followers/following lists - both directions of the same
 // edge table, sorted newest-first (most recently followed/followed-by).
@@ -27,6 +28,7 @@ export async function GET(request: Request) {
   } catch (error) {
     if (error instanceof Response) return error;
     console.error("[follow] list error", error);
+    await captureException(error, "follow:list");
     return Response.json({ error: "something went wrong" }, { status: 500 });
   }
 }
@@ -73,6 +75,7 @@ export async function POST(request: Request) {
   } catch (error) {
     if (error instanceof Response) return error;
     console.error("[follow] error", error);
+    await captureException(error, "follow:create");
     return Response.json({ error: "something went wrong" }, { status: 500 });
   }
 }
@@ -122,6 +125,7 @@ export async function DELETE(request: Request) {
   } catch (error) {
     if (error instanceof Response) return error;
     console.error("[follow] delete error", error);
+    await captureException(error, "follow:delete");
     return Response.json({ error: "something went wrong" }, { status: 500 });
   }
 }

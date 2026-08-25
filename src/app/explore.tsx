@@ -56,7 +56,7 @@ import {
   useFollows,
 } from "@/context/follows";
 import { useTheme } from "@/hooks/use-theme";
-import { hasReacted, markReacted } from "@/lib/reaction-cache";
+import { reportError } from "@/lib/report-error";
 
 // Same swipe-left-to-reveal-title behavior as collection.tsx's BookRow and
 // book-prompt.tsx's BookResultRow - constant px/sec reveal speed (not a
@@ -408,7 +408,7 @@ function FollowPrompt({
       onFollowed();
       onDismiss();
     } catch (error) {
-      console.error("[explore] follow failed", error);
+      reportError("[explore] follow failed", error);
       shake();
     } finally {
       setLoading(false);
@@ -537,14 +537,6 @@ function FollowListPrompt({
       </View>
     </View>
   );
-}
-
-// One entry's key in the local reaction-dedup cache (see
-// lib/reaction-cache.ts) and the same pair reactions+api.ts calls
-// targetKind/targetId - "review" maps to user_book_reviews.id, "started" to
-// user_books.id.
-function reactionKey(entry: FeedEntry): string {
-  return `${entry.kind}:${entry.id}`;
 }
 
 // How long between two taps still counts as a double-tap.
@@ -952,7 +944,7 @@ function UserBooksScreen({
         setLoaded(true);
       })
       .catch((error) => {
-        console.error("[explore] failed to load user's books", error);
+        reportError("[explore] failed to load user's books", error);
         if (!cancelled) setLoaded(true);
       });
     return () => {
@@ -1318,36 +1310,14 @@ export default function ExploreScreen() {
   );
   const nextHeartId = useRef(0);
 
-  // Double-tap on a card - the flying heart spawns on *every* double-tap,
-  // reacted-before or not, so repeat double-taps still feel responsive.
-  // Only the actual reaction logic (marking the local dedup cache, POSTing
-  // to the server) is gated behind hasReacted, and only runs once per entry
-  // until lib/reaction-cache.ts's own TTL prunes it back out - see that
-  // file's comment for why dedup is local-only rather than server-side. Not
-  // awaited - same fire-and-forget-but-log-only-on-failure shape as
-  // follows.tsx's unfollow/removeFollower, since nothing on screen depends
-  // on the response (the heart's already flying, the cache is already
-  // marked).
-  const handleReact = useCallback(
-    async (entry: FeedEntry, x: number, y: number) => {
-      const id = nextHeartId.current++;
-      setHearts((prev) => [...prev, { id, x, y }]);
-      const key = reactionKey(entry);
-      if (await hasReacted(key)) return;
-      await markReacted(key);
-      fetch(`${API_BASE_URL}/api/reactions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ targetKind: entry.kind, targetId: entry.id }),
-      }).catch((error) => {
-        console.error("[explore] reaction failed", error);
-      });
-    },
-    [token],
-  );
+  // Double-tap on a card - purely visual, no reaction is recorded or sent
+  // anywhere. The flying heart spawns on *every* double-tap, so it always
+  // feels responsive regardless of how many times a card's been tapped
+  // before.
+  const handleReact = useCallback((x: number, y: number) => {
+    const id = nextHeartId.current++;
+    setHearts((prev) => [...prev, { id, x, y }]);
+  }, []);
 
   const removeHeart = useCallback((id: number) => {
     setHearts((prev) => prev.filter((h) => h.id !== id));
@@ -1542,14 +1512,14 @@ export default function ExploreScreen() {
                 <ReviewCard
                   key={`review-${entry.id}`}
                   entry={entry}
-                  onReact={(x, y) => handleReact(entry, x, y)}
+                  onReact={handleReact}
                   onPressUsername={openUserBooks}
                 />
               ) : (
                 <StartedReadingCard
                   key={`started-${entry.id}`}
                   entry={entry}
-                  onReact={(x, y) => handleReact(entry, x, y)}
+                  onReact={handleReact}
                   onPressUsername={openUserBooks}
                 />
               ),

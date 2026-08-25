@@ -25,6 +25,7 @@ import { useAuth } from '@/context/auth';
 import { useCollection } from '@/context/collection';
 import { useTheme } from '@/hooks/use-theme';
 import { fetchDefinition } from '@/lib/dictionary';
+import { reportError } from '@/lib/report-error';
 import type { Entry } from '@/types/dictionary';
 
 const CHAR_LIMIT = 24;
@@ -136,6 +137,12 @@ export default function DiscoverScreen() {
       })
       .catch((e: unknown) => {
         const message = e instanceof Error ? e.message : 'fetch failed';
+        // "not found"/"network error" are expected outcomes (a nonexistent
+        // word, being offline) - not application bugs, so only the
+        // fallback "something went wrong" case is worth reporting.
+        if (message !== 'not found' && message !== 'network error') {
+          reportError('[discover] word lookup failed', e);
+        }
         setError(
           message === 'not found'
             ? `no definition found for "${wordParam}"`
@@ -161,6 +168,9 @@ export default function DiscoverScreen() {
       setSentenceExamples(sentences);
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : 'fetch failed';
+      if (message !== 'not found' && message !== 'network error') {
+        reportError('[discover] word lookup failed', e);
+      }
       setError(
         message === 'not found'
           ? `no definition found for "${word}"`
@@ -243,6 +253,12 @@ export default function DiscoverScreen() {
 
   const handleSelectBook = (book: BookResult) => {
     if (!pendingEntry) return;
+    // BookPrompt's own search input may still hold native keyboard focus at
+    // this point (the user can search for a book title before tapping a
+    // result) - unmounting it below via setPendingEntry(null) without first
+    // blurring left the OS auto-transferring focus to this screen's own
+    // search input instead, reopening the keyboard right after the add.
+    Keyboard.dismiss();
     collection.add(pendingEntry, book);
     setPendingEntry(null);
   };
@@ -252,6 +268,7 @@ export default function DiscoverScreen() {
   // silently dropping the add.
   const handleDismissBookPrompt = () => {
     if (!pendingEntry) return;
+    Keyboard.dismiss();
     collection.add(pendingEntry, null);
     setPendingEntry(null);
   };

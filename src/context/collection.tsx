@@ -25,6 +25,7 @@ import {
   runSync,
 } from "@/db/sync";
 import { useThemeContext } from "@/context/theme";
+import { reportError } from "@/lib/report-error";
 import type { Entry } from "@/types/dictionary";
 
 // The mastery value at which a word stops being "still learning" - shared
@@ -59,7 +60,7 @@ const BACKGROUND_RESET_MS = 5 * 60_000;
 function persist(task: (db: SQLiteDatabase) => Promise<unknown>) {
   getDatabase()
     .then(task)
-    .catch((error) => console.error("[collection] write failed", error));
+    .catch((error) => reportError("[collection] write failed", error));
 }
 
 export type BookInfo = {
@@ -476,7 +477,7 @@ export function CollectionProvider({
       inFlight = true;
       runSync(token)
         .then(refresh)
-        .catch((error) => console.error("[sync] failed", error))
+        .catch((error) => reportError("[sync] failed", error))
         .finally(() => {
           inFlight = false;
         });

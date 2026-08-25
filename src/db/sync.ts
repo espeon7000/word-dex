@@ -3,6 +3,7 @@ import type { SQLiteDatabase } from "expo-sqlite";
 import { getDatabase } from "./client";
 
 import { API_BASE_URL } from "@/constants/api";
+import { reportError } from "@/lib/report-error";
 
 // Fired from sendPush below whenever the server rejects our token outright
 // (expired past its 30-day lifetime, or otherwise invalid) - a single
@@ -705,7 +706,7 @@ async function runPushLoop(token: string): Promise<void> {
   try {
     await pushOnly(token);
   } catch (error) {
-    console.error("[push] failed", error);
+    reportError("[push] failed", error);
   } finally {
     pushInFlight = false;
     if (pushPending) runPushLoop(token);

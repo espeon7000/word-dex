@@ -1,6 +1,7 @@
 import { getSql } from '@/server/db';
 import { issueToken } from '@/server/jwt';
 import { verifyPassword } from '@/server/password';
+import { captureException } from '@/server/sentry';
 
 export async function POST(request: Request) {
   try {
@@ -33,6 +34,7 @@ export async function POST(request: Request) {
     return Response.json({ token, user: { email: user.email, username: user.username } });
   } catch (error) {
     console.error('[auth/login] error', error);
+    await captureException(error, 'auth/login');
     return Response.json({ error: 'something went wrong' }, { status: 500 });
   }
 }

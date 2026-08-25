@@ -1,4 +1,5 @@
 import { requireAuth } from "@/server/jwt";
+import { captureException } from "@/server/sentry";
 
 // learn.tsx's own sentence-quiz check, moved server-side - this used to call
 // api.anthropic.com directly from the client with the key inlined via
@@ -44,6 +45,7 @@ export async function POST(request: Request) {
       });
     } catch (error) {
       console.error("[verify-sentence] anthropic request failed", error);
+      await captureException(error, "verify-sentence:anthropic-request");
       return Response.json({ error: "network error" }, { status: 502 });
     }
 
@@ -73,6 +75,7 @@ export async function POST(request: Request) {
   } catch (error) {
     if (error instanceof Response) return error;
     console.error("[verify-sentence] error", error);
+    await captureException(error, "verify-sentence");
     return Response.json({ error: "something went wrong" }, { status: 500 });
   }
 }

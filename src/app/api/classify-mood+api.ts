@@ -1,5 +1,6 @@
 import { requireAuth } from "@/server/jwt";
 import { MOODS } from "@/lib/mood";
+import { captureException } from "@/server/sentry";
 
 // context/theme.tsx's own background-mood classifier, moved server-side -
 // same reasoning as verify-sentence+api.ts (the client used to call
@@ -61,6 +62,7 @@ export async function POST(request: Request) {
     // caller would have to handle.
     if (error instanceof Response) return error;
     console.error("[classify-mood] error", error);
+    await captureException(error, "classify-mood");
     return Response.json({ mood: null });
   }
 }

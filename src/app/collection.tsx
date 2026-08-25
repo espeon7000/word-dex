@@ -76,6 +76,7 @@ import type {
 import { useThemeContext } from "@/context/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { fetchDefinition } from "@/lib/dictionary";
+import { reportError } from "@/lib/report-error";
 import type { Entry } from "@/types/dictionary";
 
 // LayoutAnimation is opt-in on Android (already the default on iOS) - see
@@ -1597,7 +1598,7 @@ function AddBookPrompt({
           setOffset(searchOffset);
         }
       } catch (error) {
-        console.error("[add-book-prompt] search failed", error);
+        reportError("[add-book-prompt] search failed", error);
         if (
           requestId === requestIdRef.current &&
           error instanceof Error &&
@@ -1962,7 +1963,7 @@ export default function CollectionScreen() {
         if (data) setAvatar(data.avatar ?? null);
       })
       .catch((error) => {
-        console.error("[collection] failed to load avatar", error);
+        reportError("[collection] failed to load avatar", error);
       });
   }, [token]);
   const [ratingBook, setRatingBook] = useState<CollectionBook | null>(null);
@@ -2481,7 +2482,7 @@ export default function CollectionScreen() {
                 style: "destructive",
                 onPress: () => {
                   deleteAccount().catch((error) => {
-                    console.error("[account] delete failed", error);
+                    reportError("[account] delete failed", error);
                     Alert.alert("something went wrong", "please try again.");
                   });
                 },

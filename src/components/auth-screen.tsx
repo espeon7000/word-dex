@@ -11,6 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Fonts, Spacing } from '@/constants/theme';
 import { useAuth } from '@/context/auth';
 import { useTheme } from '@/hooks/use-theme';
+import { reportError } from '@/lib/report-error';
 
 type Mode = 'login' | 'signup';
 
@@ -74,7 +75,7 @@ export default function AuthScreen() {
       // callAuthApi already logs the specifics (network failure, bad JSON,
       // or the server's own rejection reason) - this just confirms the
       // shake below is actually reacting to that same failure.
-      console.error(`[auth-screen] ${mode} failed`, error);
+      reportError(`[auth-screen] ${mode} failed`, error);
       shake();
     } finally {
       setLoading(false);

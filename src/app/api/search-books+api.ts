@@ -1,4 +1,5 @@
 import { requireAuth } from "@/server/jwt";
+import { captureException } from "@/server/sentry";
 
 // components/book-prompt.tsx's searchBooksOnce, moved server-side - same
 // reasoning as verify-sentence+api.ts/classify-mood+api.ts (the client used
@@ -34,6 +35,7 @@ export async function GET(request: Request) {
   } catch (error) {
     if (error instanceof Response) return error;
     console.error("[search-books] error", error);
+    await captureException(error, "search-books");
     return Response.json({ error: "something went wrong" }, { status: 500 });
   }
 }

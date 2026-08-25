@@ -14,6 +14,7 @@ import * as SystemUI from 'expo-system-ui';
 import { Colors, DEFAULT_HUE, DEFAULT_SATURATION, generatePalette } from '@/constants/theme';
 import { animateHueSaturation } from '@/lib/hue-tween';
 import { classifyMood } from '@/lib/mood';
+import { reportError } from '@/lib/report-error';
 
 const STORAGE_KEY = 'theme-color';
 // Separate key, not folded into STORAGE_KEY's own JSON - this is a toggle
@@ -79,20 +80,20 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           setSaturation(parsed.saturation);
         }
       })
-      .catch((error) => console.error('[theme] failed to load', error));
+      .catch((error) => reportError('[theme] failed to load', error));
     AsyncStorage.getItem(MOOD_IMMUTABLE_STORAGE_KEY)
       .then((raw) => {
         if (raw === 'true') setMoodImmutableState(true);
       })
       .catch((error) =>
-        console.error('[theme] failed to load moodImmutable', error),
+        reportError('[theme] failed to load moodImmutable', error),
       );
   }, []);
 
   const setMoodImmutable = useCallback((next: boolean) => {
     setMoodImmutableState(next);
     AsyncStorage.setItem(MOOD_IMMUTABLE_STORAGE_KEY, String(next)).catch(
-      (error) => console.error('[theme] failed to save moodImmutable', error),
+      (error) => reportError('[theme] failed to save moodImmutable', error),
     );
   }, []);
 
@@ -102,7 +103,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     AsyncStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({ hue: nextHue, saturation: nextSaturation }),
-    ).catch((error) => console.error('[theme] failed to save', error));
+    ).catch((error) => reportError('[theme] failed to save', error));
   }, []);
 
   // Live-read by shiftMoodFromText below, which is itself a stable
@@ -152,10 +153,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         AsyncStorage.setItem(
           STORAGE_KEY,
           JSON.stringify({ hue: mood.hue, saturation: mood.saturation }),
-        ).catch((error) => console.error('[theme] failed to save', error));
+        ).catch((error) => reportError('[theme] failed to save', error));
         moodCooldownUntilRef.current = Date.now() + MOOD_COOLDOWN_MS;
       } catch (error) {
-        console.error('[theme] mood shift failed', error);
+        reportError('[theme] mood shift failed', error);
       } finally {
         moodShiftBusyRef.current = false;
       }
@@ -172,7 +173,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   // the intermediate frames.
   useEffect(() => {
     SystemUI.setBackgroundColorAsync(palette.background).catch((error) =>
-      console.error('[theme] failed to set native background', error),
+      reportError('[theme] failed to set native background', error),
     );
   }, [palette.background]);
 

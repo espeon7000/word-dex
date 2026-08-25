@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import * as Sentry from "@sentry/react-native";
 
 import AuthScreen from "@/components/auth-screen";
 import AppTabs from "@/components/app-tabs";
@@ -10,6 +11,14 @@ import { FollowsProvider } from "@/context/follows";
 import { ThemeProvider } from "@/context/theme";
 import { setTokenRefreshedHandler, setUnauthorizedHandler } from "@/db/sync";
 import { useTheme } from "@/hooks/use-theme";
+
+// Crash/error reporting only (no performance tracing - no tracesSampleRate
+// set, which leaves it disabled). EXPO_PUBLIC_* so it's readable here in the
+// client bundle - a DSN is a public identifier, not a secret, same as any
+// other analytics write key.
+Sentry.init({
+  dsn: process.env.EXPO_PUBLIC_SENTRY_DSN,
+});
 
 function Root() {
   const { user, token, loading, sessionExpired, refreshToken } = useAuth();
@@ -62,7 +71,7 @@ function ThemedGestureRoot() {
   );
 }
 
-export default function RootLayout() {
+function RootLayout() {
   return (
     <SafeAreaProvider>
       <ThemeProvider>
@@ -73,3 +82,8 @@ export default function RootLayout() {
     </SafeAreaProvider>
   );
 }
+
+// Sentry.wrap adds a top-level error boundary (so a render-time crash still
+// reports before the app goes blank) plus its own root-level tracing span -
+// harmless with tracing disabled above, just an unused span.
+export default Sentry.wrap(RootLayout);

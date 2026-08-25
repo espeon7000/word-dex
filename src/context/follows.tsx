@@ -9,6 +9,7 @@ import {
 
 import { API_BASE_URL } from "@/constants/api";
 import { useCollection } from "@/context/collection";
+import { reportError } from "@/lib/report-error";
 
 export type FollowUser = { username: string; followedAt: string };
 
@@ -86,7 +87,7 @@ export function FollowsProvider({
         setFollowing(Array.isArray(data.following) ? data.following : []);
       }
     } catch (error) {
-      console.error("[follows] failed to load followers/following", error);
+      reportError("[follows] failed to load followers/following", error);
     }
   }, [token]);
 
@@ -104,7 +105,7 @@ export function FollowsProvider({
         setFeed(Array.isArray(data.feed) ? data.feed : []);
       }
     } catch (error) {
-      console.error("[follows] failed to load feed", error);
+      reportError("[follows] failed to load feed", error);
     }
   }, [token]);
 
@@ -165,14 +166,14 @@ export function FollowsProvider({
       })
         .then((res) => {
           if (!res.ok) {
-            console.error(
+            reportError(
               `[follows] server rejected removing ${direction}`,
               res.status,
             );
           }
         })
         .catch((error) => {
-          console.error(`[follows] failed to remove ${direction}`, error);
+          reportError(`[follows] failed to remove ${direction}`, error);
         });
     },
     [token],
@@ -208,11 +209,11 @@ export function FollowsProvider({
       })
         .then((res) => {
           if (!res.ok) {
-            console.error("[follows] server rejected follow back", res.status);
+            reportError("[follows] server rejected follow back", res.status);
           }
         })
         .catch((error) => {
-          console.error("[follows] failed to follow back", error);
+          reportError("[follows] failed to follow back", error);
         });
     },
     [token],

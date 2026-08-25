@@ -1,5 +1,6 @@
 import { getSql } from "@/server/db";
 import { requireAuth } from "@/server/jwt";
+import { captureException } from "@/server/sentry";
 
 // Client-side compressed/cropped to a small square JPEG before it ever gets
 // here (see the crop modal in components/profile-picture-modal.tsx) - this
@@ -16,6 +17,7 @@ export async function GET(request: Request) {
   } catch (error) {
     if (error instanceof Response) return error;
     console.error("[profile-picture] get error", error);
+    await captureException(error, "profile-picture:get");
     return Response.json({ error: "something went wrong" }, { status: 500 });
   }
 }
@@ -40,6 +42,7 @@ export async function PUT(request: Request) {
   } catch (error) {
     if (error instanceof Response) return error;
     console.error("[profile-picture] put error", error);
+    await captureException(error, "profile-picture:put");
     return Response.json({ error: "something went wrong" }, { status: 500 });
   }
 }

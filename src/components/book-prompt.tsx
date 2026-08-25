@@ -28,6 +28,7 @@ import { useCollection } from "@/context/collection";
 import { PressableScale } from "@/components/pressable-scale";
 import { useTheme } from "@/hooks/use-theme";
 import { getCurrentToken } from "@/lib/auth-token";
+import { reportError } from "@/lib/report-error";
 
 // Short queries return noisy, mostly-irrelevant matches on Google Books -
 // this keeps the same debounced-search UX Open Library needed, even though
@@ -336,7 +337,7 @@ export default function BookPrompt({
           setSearchedEmpty(found.length === 0);
         }
       } catch (error) {
-        console.error("[book-prompt] search failed", error);
+        reportError("[book-prompt] search failed", error);
         if (
           requestId === requestIdRef.current &&
           error instanceof Error &&
