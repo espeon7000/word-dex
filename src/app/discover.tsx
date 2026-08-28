@@ -34,6 +34,28 @@ const CHAR_LIMIT = 24;
 // aren't connectivity-dependent, so foregrounding the app shouldn't clear
 // those the same way).
 const CONNECTION_ERROR_MESSAGE = 'please restore connection';
+// Distinct from CONNECTION_ERROR_MESSAGE on purpose - a timeout (see
+// lib/dictionary.ts's own DEFINITION_TIMEOUT_MS) means the connection
+// itself was fine, the dictionary API just didn't respond in time. Telling
+// a user with a working connection to go "restore" one was actively
+// misleading.
+const TIMEOUT_ERROR_MESSAGE = 'lookup timed out';
+
+// Maps a thrown Error's message (from lookupWordAndExamples/fetchDefinition)
+// to what actually shows on screen - shared by both lookup call sites below
+// so the two never drift out of sync with each other.
+function errorMessageFor(message: string, word: string): string {
+  switch (message) {
+    case 'not found':
+      return `no definition found for "${word}"`;
+    case 'network error':
+      return CONNECTION_ERROR_MESSAGE;
+    case 'timeout':
+      return TIMEOUT_ERROR_MESSAGE;
+    default:
+      return 'something went wrong';
+  }
+}
 
 // Up to the 3 most recent sentences written for this word by any user (see
 // api/sentences+api.ts) - failures here are silent (empty list), since a
@@ -86,6 +108,43 @@ export default function DiscoverScreen() {
   const router = useRouter();
   const inputRef = useRef<TextInput>(null);
   const consumedWordParam = useRef<string | undefined>(undefined);
+  // Bumped by every lookup, from either trigger below (typed search or a
+  // word-param deep link) - whichever one is still in flight when a newer
+  // one starts checks this before applying its own result/error, so an old,
+  // slow lookup (eg. a network fallback) can never clobber a newer one that
+  // happened to finish first. Without this, searching a second word while
+  // the first was still resolving didn't actually get cancelled - both
+  // requests ran, and whichever settled *last* silently overwrote whatever
+  // was already on screen, sometimes putting the first word's result back
+  // up after you'd already moved on to a second search.
+  const requestIdRef = useRef(0);
+
+  const performLookup = async (word: string) => {
+    const requestId = ++requestIdRef.current;
+    setResult(null);
+    setSentenceExamples([]);
+    setError(null);
+    setLoading(true);
+    try {
+      const { entry, sentences } = await lookupWordAndExamples(word, token);
+      if (requestId !== requestIdRef.current) return;
+      setResult(entry);
+      setSentenceExamples(sentences);
+    } catch (e: unknown) {
+      if (requestId !== requestIdRef.current) return;
+      const message = e instanceof Error ? e.message : 'fetch failed';
+      if (
+        message !== 'not found' &&
+        message !== 'network error' &&
+        message !== 'timeout'
+      ) {
+        reportError('[discover] word lookup failed', e);
+      }
+      setError(errorMessageFor(message, word));
+    } finally {
+      if (requestId === requestIdRef.current) setLoading(false);
+    }
+  };
 
   // A connection error otherwise sits there forever once shown - nothing
   // else clears it, so it'd still say "please restore connection" even
@@ -114,6 +173,11 @@ export default function DiscoverScreen() {
       isFirstResetRef.current = false;
       return;
     }
+    // Invalidates whatever lookup might still be in flight - without this,
+    // a slow lookup from before the reset could still resolve afterward and
+    // repopulate the screen it just cleared, since performLookup's own
+    // requestId check would otherwise see no reason to ignore it.
+    requestIdRef.current++;
     setInput('');
     setResult(null);
     setSentenceExamples([]);
@@ -126,61 +190,19 @@ export default function DiscoverScreen() {
     if (!wordParam || wordParam === consumedWordParam.current) return;
     consumedWordParam.current = wordParam;
     router.setParams({ word: undefined });
-    setResult(null);
-    setSentenceExamples([]);
-    setError(null);
-    setLoading(true);
-    lookupWordAndExamples(wordParam, token)
-      .then(({ entry, sentences }) => {
-        setResult(entry);
-        setSentenceExamples(sentences);
-      })
-      .catch((e: unknown) => {
-        const message = e instanceof Error ? e.message : 'fetch failed';
-        // "not found"/"network error" are expected outcomes (a nonexistent
-        // word, being offline) - not application bugs, so only the
-        // fallback "something went wrong" case is worth reporting.
-        if (message !== 'not found' && message !== 'network error') {
-          reportError('[discover] word lookup failed', e);
-        }
-        setError(
-          message === 'not found'
-            ? `no definition found for "${wordParam}"`
-            : message === 'network error'
-              ? CONNECTION_ERROR_MESSAGE
-              : 'something went wrong',
-        );
-      })
-      .finally(() => setLoading(false));
+    performLookup(wordParam);
   }, [wordParam, token]);
 
-  const submit = async () => {
+  // No loading guard - typing a second word and hitting enter while the
+  // first is still resolving now starts a real new lookup immediately
+  // (performLookup's own requestId is what makes the stale first one a
+  // no-op when it eventually settles), instead of the submit silently doing
+  // nothing until the first one finished.
+  const submit = () => {
     const word = input.trim();
-    if (!word || loading) return;
+    if (!word) return;
     setInput('');
-    setError(null);
-    setResult(null);
-    setSentenceExamples([]);
-    setLoading(true);
-    try {
-      const { entry, sentences } = await lookupWordAndExamples(word, token);
-      setResult(entry);
-      setSentenceExamples(sentences);
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : 'fetch failed';
-      if (message !== 'not found' && message !== 'network error') {
-        reportError('[discover] word lookup failed', e);
-      }
-      setError(
-        message === 'not found'
-          ? `no definition found for "${word}"`
-          : message === 'network error'
-            ? CONNECTION_ERROR_MESSAGE
-            : 'something went wrong',
-      );
-    } finally {
-      setLoading(false);
-    }
+    performLookup(word);
   };
 
   const saved = result ? collection.has(result.word) : false;
@@ -290,7 +312,22 @@ export default function DiscoverScreen() {
         >
           <View style={styles.scrollWrapper}>
             <ScrollView
-              contentContainerStyle={styles.resultArea}
+              contentContainerStyle={[
+                styles.resultArea,
+                // Centered only for the true empty/idle state ("look up a
+                // word!", nothing typed or searched yet) - loading and
+                // result/error all share the same top alignment, so this
+                // flips the instant a search *starts* (loading becomes
+                // true), not whenever the result data itself happens to
+                // arrive. That used to be the same moment the small spinner
+                // popped in became a full-height definition block, so the
+                // container's own alignment jumped from centered to
+                // top-anchored at an unpredictable time (however long the
+                // lookup took) - now it settles into its final position
+                // right away, against the near-empty spinner, and nothing
+                // shifts again once the real content fills in.
+                (loading || !!error || !!result) && styles.resultAreaActive,
+              ]}
               keyboardShouldPersistTaps="handled"
               bounces={false}
               overScrollMode="never"
@@ -433,6 +470,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: Spacing.four,
     paddingVertical: Spacing.four,
+  },
+  // Overrides resultArea's own centered justifyContent - see where this is
+  // applied for why it's keyed off loading starting, not the result arriving.
+  resultAreaActive: {
+    justifyContent: 'flex-start',
   },
   definitionBlock: {
     width: '100%',

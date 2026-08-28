@@ -1,3 +1,4 @@
+import { lookupOffline } from "@/db/dictionary";
 import type { Entry } from "@/types/dictionary";
 
 const DICTIONARY_API = "https://api.dictionaryapi.dev/api/v2/entries/en/";
@@ -8,16 +9,36 @@ const DICTIONARY_API = "https://api.dictionaryapi.dev/api/v2/entries/en/";
 // handles that regardless of timing, since it reacts to the failure itself
 // rather than guessing how long ago the app came back.
 const RETRY_DELAY_MS = 800;
+// fetch() has no built-in timeout - left alone, a slow/flaky response from
+// this free, third-party API (confirmed: some lookups take 20-30+ seconds
+// to fail, well past what anyone would wait out) just sits there, reading
+// as the screen having hung rather than an actual, visible error. Aborting
+// after this long forces a fast, bounded failure instead - same "network
+// error" outcome as no connection at all, just reached deliberately instead
+// of by however long the server feels like taking.
+const DEFINITION_TIMEOUT_MS = 4000;
 
 async function fetchDefinitionOnce(word: string): Promise<Entry> {
   let res: Response;
+  const controller = new AbortController();
+  // Distinguishes *why* fetch() rejected - a genuinely unreachable network
+  // (real "check your connection" territory) from this deliberate abort
+  // (the connection's fine, the third-party API is just slow/flaky right
+  // now) - conflating the two under one message told a working-connection
+  // user to go "restore" a connection that was never the problem.
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, DEFINITION_TIMEOUT_MS);
   try {
-    res = await fetch(`${DICTIONARY_API}${encodeURIComponent(word)}`);
+    res = await fetch(`${DICTIONARY_API}${encodeURIComponent(word)}`, {
+      signal: controller.signal,
+    });
   } catch {
-    // fetch() itself throwing (rather than resolving with some status) means
-    // the request never reached the network at all - almost always no
-    // connection, worth telling apart from a real server-side failure.
-    throw new Error("network error");
+    throw new Error(timedOut ? "timeout" : "network error");
+  } finally {
+    clearTimeout(timeout);
   }
   if (res.status === 404) throw new Error("not found");
   if (!res.ok) throw new Error("fetch failed");
@@ -38,6 +59,14 @@ async function fetchDefinitionOnce(word: string): Promise<Entry> {
 }
 
 export async function fetchDefinition(word: string): Promise<Entry> {
+  // Bundled offline dictionary first (see db/dictionary.ts) - a local
+  // SQLite lookup, so this resolves near-instantly and works with zero
+  // network at all. Only reaches the live API below on an offline miss (a
+  // word WordNet doesn't have - new slang, proper nouns, etc.) or if the
+  // offline database itself failed to set up for some reason.
+  const offline = await lookupOffline(word);
+  if (offline) return offline;
+
   try {
     return await fetchDefinitionOnce(word);
   } catch (e: unknown) {

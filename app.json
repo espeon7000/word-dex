@@ -48,7 +48,8 @@
           "microphonePermission": false
         }
       ],
-      "@sentry/react-native"
+      "@sentry/react-native",
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true,

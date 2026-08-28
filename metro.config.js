@@ -11,4 +11,11 @@ const config = getDefaultConfig(__dirname);
 // the root layout's import graph".
 config.resolver.assetExts.push('wasm');
 
+// The bundled offline dictionary (assets/dictionary/wordnet.sqlite.gz, see
+// db/dictionary.ts) is a plain binary blob, not JS - without this, Metro
+// tries to parse it as a source module (same class of problem the wasm line
+// above solves) instead of treating it as a require()-able asset copied
+// into the native build as-is.
+config.resolver.assetExts.push('gz');
+
 module.exports = config;
