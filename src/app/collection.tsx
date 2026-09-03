@@ -1662,11 +1662,11 @@ function AddBookPrompt({
   // Splits on whitespace (including newlines, so pasting/typing one word per
   // line works too), commas, and semicolons - whichever mix the user typed.
   // Deduplicated so "cat cat dog" doesn't fire the same lookup twice.
-  // dictionaryapi.dev only ever takes one word per request (no batch
-  // endpoint), so this fires one fetchDefinition per word and waits for all
-  // of them - Promise.allSettled rather than Promise.all since a bad word in
-  // the middle of the list shouldn't stop the good ones from still getting
-  // added. Only shakes (like a wrong password) if literally none of them
+  // fetchDefinition only ever takes one word per call (no batch lookup), so
+  // this fires one per word and waits for all of them - Promise.allSettled
+  // rather than Promise.all since a bad word in the middle of the list
+  // shouldn't stop the good ones from still getting added. Only shakes
+  // (like a wrong password) if literally none of them
   // resolved; otherwise whatever did resolve gets added, silently skipping
   // the rest - same "no error text" spirit as handleSubmitCategory above.
   const handleSubmitWords = async () => {

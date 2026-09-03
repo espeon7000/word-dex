@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  AppState,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -29,29 +28,18 @@ import { reportError } from '@/lib/report-error';
 import type { Entry } from '@/types/dictionary';
 
 const CHAR_LIMIT = 24;
-// Shared so the AppState effect below can tell "still showing a stale
-// connection error" apart from "not found"/"something went wrong" (which
-// aren't connectivity-dependent, so foregrounding the app shouldn't clear
-// those the same way).
-const CONNECTION_ERROR_MESSAGE = 'please restore connection';
-// Distinct from CONNECTION_ERROR_MESSAGE on purpose - a timeout (see
-// lib/dictionary.ts's own DEFINITION_TIMEOUT_MS) means the connection
-// itself was fine, the dictionary API just didn't respond in time. Telling
-// a user with a working connection to go "restore" one was actively
-// misleading.
-const TIMEOUT_ERROR_MESSAGE = 'lookup timed out';
 
 // Maps a thrown Error's message (from lookupWordAndExamples/fetchDefinition)
 // to what actually shows on screen - shared by both lookup call sites below
-// so the two never drift out of sync with each other.
+// so the two never drift out of sync with each other. The offline
+// dictionary (see lib/dictionary.ts) only ever throws "not found" - no more
+// "network error"/"timeout" cases now that there's no live API call left to
+// fail that way; the default branch below is just a safety net for a
+// genuinely unexpected error (a bug, not an expected outcome).
 function errorMessageFor(message: string, word: string): string {
   switch (message) {
     case 'not found':
       return `no definition found for "${word}"`;
-    case 'network error':
-      return CONNECTION_ERROR_MESSAGE;
-    case 'timeout':
-      return TIMEOUT_ERROR_MESSAGE;
     default:
       return 'something went wrong';
   }
@@ -100,6 +88,13 @@ export default function DiscoverScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sentenceExamples, setSentenceExamples] = useState<string[]>([]);
+  // Real measured sizes driving the result area's centered-vs-top-anchored
+  // layout below - see where they're set/used for why this replaced a
+  // simpler loading/result state flag. Both start at 0, so `0 > 0` is false
+  // and the very first render (nothing measured yet) defaults to centered,
+  // matching the old static style's own default.
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const [contentHeight, setContentHeight] = useState(0);
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const collection = useCollection();
@@ -132,12 +127,11 @@ export default function DiscoverScreen() {
       setSentenceExamples(sentences);
     } catch (e: unknown) {
       if (requestId !== requestIdRef.current) return;
-      const message = e instanceof Error ? e.message : 'fetch failed';
-      if (
-        message !== 'not found' &&
-        message !== 'network error' &&
-        message !== 'timeout'
-      ) {
+      const message = e instanceof Error ? e.message : 'lookup failed';
+      // "not found" is an expected outcome (the word genuinely isn't in the
+      // offline dictionary) - not an application bug, so only the fallback
+      // "something went wrong" case is worth reporting.
+      if (message !== 'not found') {
         reportError('[discover] word lookup failed', e);
       }
       setError(errorMessageFor(message, word));
@@ -145,22 +139,6 @@ export default function DiscoverScreen() {
       if (requestId === requestIdRef.current) setLoading(false);
     }
   };
-
-  // A connection error otherwise sits there forever once shown - nothing
-  // else clears it, so it'd still say "please restore connection" even
-  // after the connection's actually back, until the user manually searches
-  // again. Foregrounding the app is the natural moment to assume that might
-  // have changed and drop back to the idle "look up a word!" state; "not
-  // found"/"something went wrong" aren't connectivity issues, so those are
-  // deliberately left alone here.
-  useEffect(() => {
-    const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active') {
-        setError((prev) => (prev === CONNECTION_ERROR_MESSAGE ? null : prev));
-      }
-    });
-    return () => subscription.remove();
-  }, []);
 
   // Clears whatever's on screen (typed search, a result, an open book
   // prompt) whenever the app's been backgrounded long enough to count as
@@ -312,21 +290,25 @@ export default function DiscoverScreen() {
         >
           <View style={styles.scrollWrapper}>
             <ScrollView
+              onLayout={(e) => setViewportHeight(e.nativeEvent.layout.height)}
+              onContentSizeChange={(_w, h) => setContentHeight(h)}
               contentContainerStyle={[
                 styles.resultArea,
-                // Centered only for the true empty/idle state ("look up a
-                // word!", nothing typed or searched yet) - loading and
-                // result/error all share the same top alignment, so this
-                // flips the instant a search *starts* (loading becomes
-                // true), not whenever the result data itself happens to
-                // arrive. That used to be the same moment the small spinner
-                // popped in became a full-height definition block, so the
-                // container's own alignment jumped from centered to
-                // top-anchored at an unpredictable time (however long the
-                // lookup took) - now it settles into its final position
-                // right away, against the near-empty spinner, and nothing
-                // shifts again once the real content fills in.
-                (loading || !!error || !!result) && styles.resultAreaActive,
+                // Centered whenever the content actually fits without
+                // scrolling (idle text, a spinner, or a short result alike)
+                // - top-anchored only once it genuinely doesn't (a long
+                // result), since centering content taller than its own
+                // viewport just looks broken, not "centered." Driven by real
+                // measured sizes, not a loading/result state flag - a state
+                // flag either jumps position the instant a search starts
+                // (which is what this replaced: it also top-anchored short
+                // results that never needed it, losing the centering this
+                // restores) or jumps whenever the result data happens to
+                // finish loading (the original complaint). Sizing off the
+                // actual content means a short result never needs to move at
+                // all, and a long one only shifts because it genuinely has
+                // to - not because of when a network call happened to settle.
+                contentHeight > viewportHeight && styles.resultAreaActive,
               ]}
               keyboardShouldPersistTaps="handled"
               bounces={false}
@@ -472,7 +454,8 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.four,
   },
   // Overrides resultArea's own centered justifyContent - see where this is
-  // applied for why it's keyed off loading starting, not the result arriving.
+  // applied for why it's keyed off measured content size, not a loading/
+  // result state flag.
   resultAreaActive: {
     justifyContent: 'flex-start',
   },
