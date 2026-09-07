@@ -1000,7 +1000,7 @@ function SettingsScreen({
           onPress={onEditProfilePicture}
         >
           <Text style={[styles.settingsOptionText, { color: theme.text }]}>
-            add/edit profile picture
+            add profile picture
           </Text>
         </Pressable>
         <View
