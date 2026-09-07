@@ -84,12 +84,12 @@ function shuffled<T>(items: T[]): T[] {
   return [...items].sort(() => Math.random() - 0.5);
 }
 
-// DEFINITION_QUIZ_WORDS' entries are written lowercase-first (matching each
-// other), unlike a real dictionary-API definition which starts a sentence
-// properly - capitalized here rather than in the source list itself, since
-// this only ever needs to happen for entries actually used as distractors,
-// and never for entry.definition (the correct answer), whose own casing is
-// left exactly as the dictionary API returned it.
+// DEFINITION_QUIZ_WORDS' entries and the local WordNet-backed
+// entry.definition are both written lowercase-first, unlike a real
+// dictionary-API definition which starts a sentence properly - applied to
+// every quiz option (distractors and the correct answer alike) rather than
+// the source data, since callers outside the quiz still want the raw,
+// uncapitalized definition text.
 function capitalizeFirst(text: string): string {
   if (!text) return text;
   return text.charAt(0).toUpperCase() + text.slice(1);
@@ -111,7 +111,7 @@ function buildQuizOptions(entry: CollectionEntry): string[] {
   const distractors = shuffled(pool)
     .slice(0, DEFINITION_OPTION_COUNT - 1)
     .map((w) => capitalizeFirst(w.definition));
-  return shuffled([...distractors, entry.definition]);
+  return shuffled([...distractors, capitalizeFirst(entry.definition)]);
 }
 
 // How long to hold on the reveal animation (correct-color pop, or the wrong
@@ -567,7 +567,7 @@ export default function LearnScreen() {
     const isNewDay = ensureCurrentDay();
     setSelectedOption(choice);
     const word = currentEntry.word;
-    const isCorrect = choice === currentEntry.definition;
+    const isCorrect = choice === capitalizeFirst(currentEntry.definition);
 
     if (isCorrect) {
       revealTimeoutRef.current = setTimeout(() => {
@@ -814,7 +814,8 @@ export default function LearnScreen() {
                       // "success" (there's no separate "picked" moment to
                       // key off of there).
                       (promptMode === "definition" &&
-                        selectedOption === currentEntry.definition)) && (
+                        selectedOption ===
+                          capitalizeFirst(currentEntry.definition))) && (
                       <Ionicons name="checkmark" size={20} color={theme.text} />
                     )}
                   </View>
@@ -860,7 +861,8 @@ export default function LearnScreen() {
                               selectedOption === null
                                 ? "idle"
                                 : option === selectedOption
-                                  ? selectedOption === currentEntry.definition
+                                  ? selectedOption ===
+                                    capitalizeFirst(currentEntry.definition)
                                     ? "correct"
                                     : "incorrect"
                                   : // Wrong pick: leave every other option
@@ -868,7 +870,8 @@ export default function LearnScreen() {
                                     // tapped one is the only signal. Right
                                     // pick: dim the rest to draw focus to
                                     // the one that just darkened.
-                                    selectedOption === currentEntry.definition
+                                    selectedOption ===
+                                      capitalizeFirst(currentEntry.definition)
                                     ? "dim"
                                     : "idle"
                             }
