@@ -1,6 +1,6 @@
 a word learning and book review app. jwt auth, sync handled across multiple devices. social features are limited since no one except me uses this..
 
-expo sdk 54, expo api routes, postgresql via neondb, sentry
+expo sdk 54, expo api routes, postgresql (neondb), sentry
 
 
 
