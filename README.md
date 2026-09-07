@@ -4,5 +4,6 @@ expo sdk 54, expo api routes, postgresql via neondb, sentry
 
 
 
-https://github.com/user-attachments/assets/06f7b927-e2b9-4af4-8dd1-33f376f1f483
+
+https://github.com/user-attachments/assets/da1cf881-78ac-421e-9929-cc866892446d
 
